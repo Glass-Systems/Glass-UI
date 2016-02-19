@@ -1,0 +1,200 @@
+--shell.setDir("/")
+term.setBackgroundColor(colors.gray)
+term.clear()
+local logo = paintutils.loadImage(".proto/img/core_logo.nfp")
+paintutils.drawImage(logo,20,9)
+term.setBackgroundColor(colors.gray)
+term.setCursorPos(19,13)
+print("Multitasking Demo")
+term.setTextColor(colors.lightGray)
+term.setCursorPos(47,2)
+print("v1.0")
+sleep(3)
+	local oldTerm = term.current()
+	local process = {}
+	local processes = {}
+	-- Select a process and set it as the current Process
+	function notificationFunc()
+		while true do
+			--processes[process.notifyProc].window.setVisible(false)
+			local event,title,text = os.pullEvent()
+			--processes[process.notifyProc].window.setVisible(true)
+			term.setBackgroundColor(colors.gray)
+			term.clear()
+			term.setCursorPos(2,2)
+			print(event)
+			term.setCursorPos(2,4)
+			print("Proc:"..processes[process.cProcess].name)
+			run = true
+			while run == true and process.cProcess == process.notifyProc do
+				processes[process.notifyProc].window.redraw()
+				-- term.redirect(processes[process.notifyProc].window)
+				sleep(5)
+				processes[process.notifyProc].window.setVisible(false)
+				processes[1].window.redraw()
+				process.selectProcess(oldProcess)
+		end
+		end
+	end
+	function process.selectProcess( id )
+		local oldProcess = processes[ process.cProcess ]
+		if process.cProcess and processes[process.cProcess] then
+			processes[process.cProcess].window.setVisible( false )
+		end
+		process.cProcess = id
+		processes[id].window.setVisible( true )
+		processes[id].window.redraw()
+		process.drawTaskBar()
+	end
+	-- Rename a process
+	function process.setName( id, name )
+		processes[id].name = name
+	end
+	function process.currentNotif(id)
+		process.cProcess = id
+		processes[id].window.setVisible( true )
+	end
+	-- Resume a process
+	function process.resume( id, event, ... )
+		if processes[id] then
+			term.redirect(processes[id].window)
+			if coroutine.status(processes[id].co) == "dead" then
+				if id == process.cProcess then
+					table.remove(processes,id)
+					process.selectProcess(#processes)
+				end
+			else
+				local ok, err = coroutine.resume( processes[id].co, event, ... )
+				-- if not ok then
+					-- print(err)
+					-- table.remove(processes,id)
+					-- print("Process #"..id.." is dead,removed coroutine")
+					-- processes[id].selectProcess(#processes)
+				-- end
+			end
+		end
+	end
+	-- Use a file as a process
+	function process.addFile( name, env, file , fullscreen , ... )
+		local h = fs.open( file , "r")
+		process.add( env, function() loadstring(h.readAll()) end , fullscreen , ... )
+		h.close()
+	end
+	-- Add a process
+	function process.add( name, env , func , fullscreen , ... )
+		local args = { ... }
+		local id = #processes + 1
+		processes[id] = {}
+		if fullscreen then
+			processes[id].window = window.create( oldTerm, 1, 3, 51, 19, false )
+			processes[id].fullscreen = true
+		else
+			processes[id].window = window.create( oldTerm, 1, 1, 51, 19, false )
+		end
+		processes[id].id = id
+		processes[id].name = name
+		processes[id].co = coroutine.create(func)
+		return id
+	end
+
+	-- process.notification = {}
+	-- process.notification = window.create(oldTerm,1,1,51,2,true)
+	-- term.redirect(process.notification)
+	-- term.setBackgroundColor(colors.gray)
+	-- term.clear()
+	process.taskbar = window.create(oldTerm,1,1,51,2,true)
+	-- Draw Taskbar
+	function process.drawTaskBar()
+		term.redirect(process.taskbar)
+		term.setBackgroundColor(colors.green)
+		term.clear()
+		term.setCursorPos(2,1)
+		print("=")
+		term.setCursorPos(4,1)
+		print(processes[process.cProcess].name)
+		term.setCursorPos(20,1)
+		if process.cProcess ~= 1 then
+			print("Home")
+			term.setCursorPos(26,1)
+			print("Notify")
+		end
+	end
+	function process.notify(title,text,color)
+		os.queueEvent("notification",title,text,color)
+	end
+	-- Run processes
+	function process.run()
+		process.notifyProc = process.add("Notify2",nil,notificationFunc,true)
+		processes[process.notifyProc].window.reposition(25,12,20,7)
+		process.drawTaskBar()
+		process.resume(1)
+		while #processes > 0 do
+			-- Get the event
+			local eventData = { os.pullEventRaw() }
+			local sEvent = eventData[1]
+			if sEvent == "char" or sEvent == "key" or sEvent == "key_up" or sEvent == "paste" or sEvent == "terminate" then
+				-- Keyboard event
+				-- Passthrough to current process
+				process.resume( process.cProcess , table.unpack( eventData ) )
+			elseif sEvent == "mouse_click" then
+				local button, x, y = eventData[2], eventData[3], eventData[4]
+				if process.cProcess >= 1 and x >= 20 and x <= 25 and y == 1 then
+					process.selectProcess(1)
+				elseif process.cProcess >= 1 and x >= 26 and x <= 31 and y == 1 then
+					process.notify("Hello","I am a notification",colors.cyan)
+				else process.resume( process.cProcess, sEvent, button, x, y - 1)
+				end
+			elseif sEvent == "mouse_drag" or sEvent == "mouse_up" or sEvent == "mouse_scroll" then
+				local p1, x, y = eventData[2], eventData[3], eventData[4]
+				process.resume( process.cProcess, sEvent, p1, x, y -1 )
+			elseif sEvent == "notification" then
+				oldProcess = process.cProcess
+				process.currentNotif(process.notifyProc)
+				processes[process.notifyProc].window.setVisible(true)
+				process.resume( process.notifyProc , table.unpack( eventData ) )
+			else
+				local nLimit = #processes
+				for n=1,nLimit do
+					process.resume( n, table.unpack( eventData ) )
+				end
+		   end
+		end
+	end
+	function nPaintPro()
+		shell.run(".proto/npaintpro")
+	end
+	function luaIDE()
+		shell.run(".proto/luaIDE")
+	end
+	function proto()
+		local function redraw()
+			term.setBackgroundColor(colors.cyan)
+			term.clear()
+			term.setCursorPos(1,1)
+			print("Press 1 for notification")
+			print("Press 2 to launch NPaintPro")
+			print("Press 3 to launch LuaIDE")
+		end
+		redraw()
+		while true do
+			local event,key = os.pullEvent("key")
+			if event == "key" and key == keys.one or key == keys.numPad1 then
+				process.notify("Hello","I am a notification",colors.cyan)
+			elseif event == "key" and key == keys.two or key == keys.numPad2 then
+				if not nPaintPro2 then
+					nPaintPro2 = process.add("NPaintPro",nil,nPaintPro,true)
+				end
+				redraw()
+				process.selectProcess(nPaintPro2)
+			elseif event == "key" and key == keys.three or key == keys.numPad3 then
+				if not luaIDE2 then
+					luaIDE2 = process.add("LuaIDE",nil,luaIDE,true)
+				end
+				redraw()
+				process.selectProcess(luaIDE2)
+			end
+		end
+	end
+	process.add("Proto",nil,proto,true)
+	process.selectProcess(1)
+	process.run()
